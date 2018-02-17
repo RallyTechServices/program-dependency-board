@@ -1,0 +1,7 @@
+{
+    "name": "Program Dependency Board",
+    "sdk": "2.1",
+    "version": "0.1",
+    "className": "CArABU.app.PDBApp",
+    "artifact": "US1652"
+}

@@ -3,13 +3,13 @@
 <head>
     <title>CATS-Program Dependency Board-0.1</title>
     <!--  (c) 2017 CA Technologies.  All Rights Reserved. -->
-    <!--  Build Date: Fri Feb 16 2018 17:35:51 GMT-0800 (PST) -->
+    <!--  Build Date: Tue Feb 20 2018 12:54:05 GMT-0800 (PST) -->
 
     <script type="text/javascript">
-        var APP_BUILD_DATE = "Fri Feb 16 2018 17:35:51 GMT-0800 (PST)";
+        var APP_BUILD_DATE = "Tue Feb 20 2018 12:54:05 GMT-0800 (PST)";
         var ARTIFACT = "US1652";
         var BUILDER  = "rajan08";
-        var CHECKSUM = 9423688573;
+        var CHECKSUM = 42770973623;
     </script>
 
     <script type="text/javascript" src="/apps/2.1/sdk.js"></script>
@@ -325,6 +325,622 @@ Ext.define('TSUtilities', {
     }
 });
 
+Ext.define('CArABU.technicalservices.FileUtilities', {
+    singleton: true,
+    logger: new CArABU.technicalservices.Logger(),
+    saveCSVToFile:function(csv,file_name,type_object){
+            if (type_object == undefined){
+                type_object = {type:'text/csv;charset=utf-8'};
+            }
+            var blob = new Blob([csv],type_object);
+            saveAs(blob,file_name);
+    },
+    saveTextAsFile: function(textToWrite, fileName) {
+        var textFileAsBlob = new Blob([textToWrite], {type:'text/plain'});
+        var fileNameToSaveAs = fileName;
+
+        var downloadLink = document.createElement("a");
+        downloadLink.download = fileNameToSaveAs;
+        downloadLink.innerHTML = "Download File";
+        if (window.webkitURL != null)
+        {
+            // Chrome allows the link to be clicked
+            // without actually adding it to the DOM.
+            downloadLink.href = window.webkitURL.createObjectURL(textFileAsBlob);
+        }
+        else
+        {
+            // Firefox requires the link to be added to the DOM
+            // before it can be clicked.
+            downloadLink.href = window.URL.createObjectURL(textFileAsBlob);
+            downloadLink.onclick = destroyClickedElement;
+            downloadLink.style.display = "none";
+            document.body.appendChild(downloadLink);
+        }
+        downloadLink.click();
+    },
+    destroyClickedElement: function(event)
+    {
+        document.body.removeChild(event.target);
+    },
+    convertDataArrayToCSVText: function(data_array, requestedFieldHash){
+       
+        var text = '';
+        Ext.each(Object.keys(requestedFieldHash), function(key){
+            text += requestedFieldHash[key] + ',';
+        });
+        text = text.replace(/,$/,'\n');
+        
+        Ext.each(data_array, function(d){
+            Ext.each(Object.keys(requestedFieldHash), function(key){
+                if (d[key]){
+                    if (typeof d[key] === 'object'){
+                        if (d[key].FormattedID) {
+                            text += Ext.String.format("\"{0}\",",d[key].FormattedID ); 
+                        } else if (d[key].Name) {
+                            text += Ext.String.format("\"{0}\",",d[key].Name );                    
+                        } else if (!isNaN(Date.parse(d[key]))){
+                            text += Ext.String.format("\"{0}\",",Rally.util.DateTime.formatWithDefaultDateTime(d[key]));
+                        }else {
+                            text += Ext.String.format("\"{0}\",",d[key].toString());
+                        }
+                    } else {
+                        text += Ext.String.format("\"{0}\",",d[key] );                    
+                    }
+                } else {
+                    text += ',';
+                }
+            },this);
+            text = text.replace(/,$/,'\n');
+        },this);
+        return text;
+    },
+    _getCSVFromWsapiBackedGrid: function(grid) {
+        var deferred = Ext.create('Deft.Deferred');
+        var store = Ext.create('Rally.data.wsapi.Store',{
+            fetch: grid.getStore().config.fetch,
+            filters: grid.getStore().config.filters,
+            model: grid.getStore().config.model,
+            limit:Infinity,
+            pageSize: Infinity
+
+        });
+        
+        var columns = grid.columns;
+        var headers = this._getHeadersFromGrid(grid);
+        var column_names = this._getColumnNamesFromGrid(grid);
+        
+        var record_count = grid.getStore().getTotalCount(),
+            page_size = grid.getStore().pageSize,
+            pages = Math.ceil(record_count/page_size),
+            promises = [];
+
+        for (var page = 1; page <= pages; page ++ ) {
+            promises.push(this.loadStorePage(grid, store, columns, page, pages));
+        }
+        Deft.Promise.all(promises).then({
+            success: function(csvs){
+                var csv = [];
+                csv.push('"' + headers.join('","') + '"');
+                _.each(csvs, function(c){
+                    _.each(c, function(line){
+                        csv.push(line);
+                    });
+                });
+                csv = csv.join('\r\n');
+                deferred.resolve(csv);
+                Rally.getApp().setLoading(false);
+            }
+        });
+        return deferred.promise;
+    },
+
+    // custom grid assumes there store is fully loaded
+    _getCSVFromCustomBackedGridWithPaging: function(grid) {
+        var deferred = Ext.create('Deft.Deferred');
+
+
+        var store = Ext.create('Rally.data.custom.Store',{
+            model: grid.getStore().config.model,
+            filters: grid.getStore().config.filters,
+            limit:Infinity,
+            pageSize: Infinity
+        });
+
+        var columns = grid.columns;
+        var headers = this._getHeadersFromGrid(grid);
+        var column_names = this._getColumnNamesFromGrid(grid);
+        
+        var record_count = grid.getStore().getTotalCount(),
+            page_size = grid.getStore().pageSize,
+            pages = Math.ceil(record_count/page_size),
+            promises = [];
+
+        // for (var page = 1; page <= pages; page ++ ) {
+        //     promises.push(this.loadStorePage(grid, store, columns, page, pages));
+        // }
+
+        promises.push(this.loadStorePage(grid, store, columns, page, pages));
+
+        Deft.Promise.all(promises).then({
+            success: function(csvs){
+                var csv = [];
+                csv.push('"' + headers.join('","') + '"');
+                _.each(csvs, function(c){
+                    _.each(c, function(line){
+                        csv.push(line);
+                    });
+                });
+                csv = csv.join('\r\n');
+                deferred.resolve(csv);
+                Rally.getApp().setLoading(false);
+            }
+        });
+        return deferred.promise;
+
+        // var headers = this._getHeadersFromGrid(grid);
+        
+        // var columns = grid.columns;
+        // var column_names = this._getColumnNamesFromGrid(grid);
+
+       
+        // var csv = [];
+        // csv.push('"' + headers.join('","') + '"');
+
+        // var number_of_records = store.getTotalCount();
+        
+        // this.logger.log("Number of records to export:", number_of_records);
+        
+        // for (var i = 0; i < number_of_records; i++) {
+        //     var record = store.getAt(i);
+        //     if ( ! record ) {
+        //         this.logger.log("Number or lines in CSV:", csv.length);
+        //         return csv.join('\r\n');            }
+        //     csv.push( this._getCSVFromRecord(record, grid, store) );
+        // }
+        
+        // this.logger.log("Number or lines in CSV:", csv.length);
+        // return csv.join('\r\n');
+    },
+
+    
+    // custom grid assumes there store is fully loaded
+    _getCSVFromCustomBackedGrid: function(grid) {
+    var deferred = Ext.create('Deft.Deferred');
+            var me = this;
+            
+            Rally.getApp().setLoading("Assembling data for export...");
+            
+            var headers = this._getHeadersFromGrid(grid);
+            var store = Ext.clone( grid.getStore() );
+            var columns = grid.columns;
+            var column_names = this._getColumnNamesFromGrid(grid);
+            
+            var record_count = grid.getStore().getTotalCount();
+            var original_page_size = grid.getStore().pageSize;
+            
+            var page_size = 20000;
+            var number_of_pages = Math.ceil(record_count/page_size);
+            store.pageSize = page_size;
+            
+            var pages = [],
+                promises = [];
+
+            for (var page = 1; page <= number_of_pages; page ++ ) {
+                pages.push(page);
+            }
+            
+            Ext.Array.each(pages, function(page) {
+                promises.push(function() { 
+                    return me._loadStorePage(grid, store, columns, page, pages.length )
+                });
+            });
+            
+            Deft.Chain.sequence(promises).then({
+                success: function(csvs){
+
+                    // set page back to last view
+                    store.pageSize = original_page_size;
+                    store.loadPage(1);
+                    
+                    var csv = [];
+                    csv.push('"' + headers.join('","') + '"');
+                    _.each(csvs, function(c){
+                        _.each(c, function(line){
+                            csv.push(line);
+                        });
+                    });
+                    csv = csv.join('\r\n');
+                    deferred.resolve(csv);
+                    Rally.getApp().setLoading(false);
+                }
+            });
+            
+            return deferred.promise;
+    },
+    
+
+
+    _loadStorePage: function(grid, store, columns, page, total_pages){
+        var deferred = Ext.create('Deft.Deferred');
+
+        store.loadPage(page, {
+            callback: function (records) {
+                var csv = [];
+                for (var i = 0; i < records.length; i++) {
+                    // if(i==0){
+                    //     Rally.getApp().setLoading("Loading page "+page+ " of "+total_pages);
+                    // }
+                    var record = records[i];
+                    csv.push( this._getCSVFromRecord(record, grid, store) );
+                }
+                deferred.resolve(csv);
+            },
+            scope: this
+        });
+        this.logger.log("_loadStorePage", page, " of ", total_pages);
+        return deferred.promise;
+    },
+
+
+    _getHeadersFromGrid: function(grid) {
+        var headers = [];        
+        var columns = grid.columns;
+
+        Ext.Array.each(columns,function(column){
+            if ( column.dataIndex || column.renderer ) {
+                if ( column.csvText ) {
+                    headers.push(column.csvText.replace('&nbsp;',' '));
+                } else if ( column.text )  {
+                    headers.push(column.text.replace('&nbsp;',' '));
+                }
+            }
+        });
+        
+        return headers;
+    },
+    
+    _getColumnNamesFromGrid: function(grid) {
+        var names = [];
+        var columns = grid.columns;
+
+        Ext.Array.each(columns,function(column){
+            if ( column.dataIndex || column.renderer ) {
+                names.push(column.dataIndex);
+            }
+        });
+        
+        return names;
+    },
+    /*
+     * will render using your grid renderer.  If you want it to ignore the grid renderer, 
+     * have the column set _csvIgnoreRender: true
+     */
+    getCSVFromGrid:function(app, grid){
+        this.logger.log("Exporting grid with store type:", Ext.getClassName(grid.getStore()));
+        
+        if ( Ext.getClassName(grid.getStore()) != "Rally.data.custom.Store" ) {
+            return this._getCSVFromWsapiBackedGrid(grid);
+        }
+        
+        return this._getCSVFromCustomBackedGrid(grid);
+    },
+
+    loadStorePage: function(grid, store, columns, page, total_pages){
+        console.log('Inside loadStorePage');
+        var deferred = Ext.create('Deft.Deferred');
+        this.logger.log('loadStorePage',page, total_pages);
+
+        store.loadPage(page, {
+            callback: function (records, operation, success) {
+                //console.log(' page records length',records.length,'success',success);
+                var csv = [];
+                Rally.getApp().setLoading(Ext.String.format('Page {0} of {1} loaded',page, total_pages));
+                for (var i = 0; i < records.length; i++) {
+                    var record = records[i];
+                    csv.push( this._getCSVFromRecord(record, grid, store) );
+                }
+                deferred.resolve(csv);
+            },
+            scope: this
+        });
+        return deferred;
+    },
+    
+    _getCSVFromRecord: function(record, grid, store) {
+        var mock_meta_data = {
+            align: "right",
+            classes: [],
+            cellIndex: 9,
+            column: null,
+            columnIndex: 9,
+            innerCls: undefined,
+            recordIndex: 5,
+            rowIndex: 5,
+            style: "",
+            tdAttr: "",
+            tdCls: "x-grid-cell x-grid-td x-grid-cell-headerId-gridcolumn-1029 x-grid-cell-last x-unselectable",
+            unselectableAttr: "unselectable='on'"
+        };
+        
+        var node_values = [];
+        var columns = grid.columns;
+        //console.log('inside _getCSVFromRecord');
+        Ext.Array.each(columns, function (column) {
+            if (column.xtype != 'rallyrowactioncolumn') {
+                if (column.dataIndex) {
+                    var column_name = column.dataIndex;
+                    
+                    var display_value = record.get(column_name);
+
+                    if (!column._csvIgnoreRender && column.renderer) {
+                        if (column.exportRenderer) {
+                            display_value = column.exportRenderer(display_value, mock_meta_data, record, 0, 0, store, grid.getView());
+                        } else {
+                            display_value = column.renderer(display_value, mock_meta_data, record, 0, 0, store, grid.getView());
+                        }
+                    }
+                    node_values.push(display_value);
+                } else {
+                    var display_value = null;
+                    if (!column._csvIgnoreRender && column.renderer) {
+                        if (column.exportRenderer) {
+                            display_value = column.exportRenderer(display_value, mock_meta_data, record, record, 0, 0, store, grid.getView());
+                        } else {
+                            display_value = column.renderer(display_value, mock_meta_data, record, record, 0, 0, store, grid.getView());
+                        }
+                        node_values.push(display_value);
+                    }
+                }
+
+            }
+        }, this);
+        //console.log('Node values',node_values);
+        return '"' + node_values.join('","') + '"';
+    }
+
+});
+/* FileSaver.js
+ *  A saveAs() FileSaver implementation.
+ *  2014-05-27
+ *
+ *  By Eli Grey, http://eligrey.com
+ *  License: X11/MIT
+ *    See https://github.com/eligrey/FileSaver.js/blob/master/LICENSE.md
+ */
+
+/*global self */
+/*jslint bitwise: true, indent: 4, laxbreak: true, laxcomma: true, smarttabs: true, plusplus: true */
+
+/*! @source http://purl.eligrey.com/github/FileSaver.js/blob/master/FileSaver.js */
+
+var saveAs = saveAs
+  // IE 10+ (native saveAs)
+  || (typeof navigator !== "undefined" &&
+      navigator.msSaveOrOpenBlob && navigator.msSaveOrOpenBlob.bind(navigator))
+  // Everyone else
+  || (function(view) {
+    "use strict";
+    // IE <10 is explicitly unsupported
+    if (typeof navigator !== "undefined" &&
+        /MSIE [1-9]\./.test(navigator.userAgent)) {
+        return;
+    }
+    var
+          doc = view.document
+          // only get URL when necessary in case Blob.js hasn't overridden it yet
+        , get_URL = function() {
+            return view.URL || view.webkitURL || view;
+        }
+        , save_link = doc.createElementNS("http://www.w3.org/1999/xhtml", "a")
+        , can_use_save_link = !view.externalHost && "download" in save_link
+        , click = function(node) {
+            var event = doc.createEvent("MouseEvents");
+            event.initMouseEvent(
+                "click", true, false, view, 0, 0, 0, 0, 0
+                , false, false, false, false, 0, null
+            );
+            node.dispatchEvent(event);
+        }
+        , webkit_req_fs = view.webkitRequestFileSystem
+        , req_fs = view.requestFileSystem || webkit_req_fs || view.mozRequestFileSystem
+        , throw_outside = function(ex) {
+            (view.setImmediate || view.setTimeout)(function() {
+                throw ex;
+            }, 0);
+        }
+        , force_saveable_type = "application/octet-stream"
+        , fs_min_size = 0
+        , deletion_queue = []
+        , process_deletion_queue = function() {
+            var i = deletion_queue.length;
+            while (i--) {
+                var file = deletion_queue[i];
+                if (typeof file === "string") { // file is an object URL
+                    get_URL().revokeObjectURL(file);
+                } else { // file is a File
+                    file.remove();
+                }
+            }
+            deletion_queue.length = 0; // clear queue
+        }
+        , dispatch = function(filesaver, event_types, event) {
+            event_types = [].concat(event_types);
+            var i = event_types.length;
+            while (i--) {
+                var listener = filesaver["on" + event_types[i]];
+                if (typeof listener === "function") {
+                    try {
+                        listener.call(filesaver, event || filesaver);
+                    } catch (ex) {
+                        throw_outside(ex);
+                    }
+                }
+            }
+        }
+        , FileSaver = function(blob, name) {
+            // First try a.download, then web filesystem, then object URLs
+            var
+                  filesaver = this
+                , type = blob.type
+                , blob_changed = false
+                , object_url
+                , target_view
+                , get_object_url = function() {
+                    var object_url = get_URL().createObjectURL(blob);
+                    deletion_queue.push(object_url);
+                    return object_url;
+                }
+                , dispatch_all = function() {
+                    dispatch(filesaver, "writestart progress write writeend".split(" "));
+                }
+                // on any filesys errors revert to saving with object URLs
+                , fs_error = function() {
+                    // don't create more object URLs than needed
+                    if (blob_changed || !object_url) {
+                        object_url = get_object_url(blob);
+                    }
+                    if (target_view) {
+                        target_view.location.href = object_url;
+                    } else {
+                        window.open(object_url, "_blank");
+                    }
+                    filesaver.readyState = filesaver.DONE;
+                    dispatch_all();
+                }
+                , abortable = function(func) {
+                    return function() {
+                        if (filesaver.readyState !== filesaver.DONE) {
+                            return func.apply(this, arguments);
+                        }
+                    };
+                }
+                , create_if_not_found = {create: true, exclusive: false}
+                , slice
+            ;
+            filesaver.readyState = filesaver.INIT;
+            if (!name) {
+                name = "download";
+            }
+            if (can_use_save_link) {
+                object_url = get_object_url(blob);
+                save_link.href = object_url;
+                save_link.download = name;
+                click(save_link);
+                filesaver.readyState = filesaver.DONE;
+                dispatch_all();
+                return;
+            }
+            // Object and web filesystem URLs have a problem saving in Google Chrome when
+            // viewed in a tab, so I force save with application/octet-stream
+            // http://code.google.com/p/chromium/issues/detail?id=91158
+            if (view.chrome && type && type !== force_saveable_type) {
+                slice = blob.slice || blob.webkitSlice;
+                blob = slice.call(blob, 0, blob.size, force_saveable_type);
+                blob_changed = true;
+            }
+            // Since I can't be sure that the guessed media type will trigger a download
+            // in WebKit, I append .download to the filename.
+            // https://bugs.webkit.org/show_bug.cgi?id=65440
+            if (webkit_req_fs && name !== "download") {
+                name += ".download";
+            }
+            if (type === force_saveable_type || webkit_req_fs) {
+                target_view = view;
+            }
+            if (!req_fs) {
+                fs_error();
+                return;
+            }
+            fs_min_size += blob.size;
+            req_fs(view.TEMPORARY, fs_min_size, abortable(function(fs) {
+                fs.root.getDirectory("saved", create_if_not_found, abortable(function(dir) {
+                    var save = function() {
+                        dir.getFile(name, create_if_not_found, abortable(function(file) {
+                            file.createWriter(abortable(function(writer) {
+                                writer.onwriteend = function(event) {
+                                    target_view.location.href = file.toURL();
+                                    deletion_queue.push(file);
+                                    filesaver.readyState = filesaver.DONE;
+                                    dispatch(filesaver, "writeend", event);
+                                };
+                                writer.onerror = function() {
+                                    var error = writer.error;
+                                    if (error.code !== error.ABORT_ERR) {
+                                        fs_error();
+                                    }
+                                };
+                                "writestart progress write abort".split(" ").forEach(function(event) {
+                                    writer["on" + event] = filesaver["on" + event];
+                                });
+                                writer.write(blob);
+                                filesaver.abort = function() {
+                                    writer.abort();
+                                    filesaver.readyState = filesaver.DONE;
+                                };
+                                filesaver.readyState = filesaver.WRITING;
+                            }), fs_error);
+                        }), fs_error);
+                    };
+                    dir.getFile(name, {create: false}, abortable(function(file) {
+                        // delete file if it already exists
+                        file.remove();
+                        save();
+                    }), abortable(function(ex) {
+                        if (ex.code === ex.NOT_FOUND_ERR) {
+                            save();
+                        } else {
+                            fs_error();
+                        }
+                    }));
+                }), fs_error);
+            }), fs_error);
+        }
+        , FS_proto = FileSaver.prototype
+        , saveAs = function(blob, name) {
+            return new FileSaver(blob, name);
+        }
+    ;
+    FS_proto.abort = function() {
+        var filesaver = this;
+        filesaver.readyState = filesaver.DONE;
+        dispatch(filesaver, "abort");
+    };
+    FS_proto.readyState = FS_proto.INIT = 0;
+    FS_proto.WRITING = 1;
+    FS_proto.DONE = 2;
+
+    FS_proto.error =
+    FS_proto.onwritestart =
+    FS_proto.onprogress =
+    FS_proto.onwrite =
+    FS_proto.onabort =
+    FS_proto.onerror =
+    FS_proto.onwriteend =
+        null;
+
+    view.addEventListener("unload", process_deletion_queue, false);
+    saveAs.unload = function() {
+        process_deletion_queue();
+        view.removeEventListener("unload", process_deletion_queue, false);
+    };
+    return saveAs;
+}(
+       typeof self !== "undefined" && self
+    || typeof window !== "undefined" && window
+    || this.content
+));
+// `self` is undefined in Firefox for Android content script context
+// while `this` is nsIContentFrameMessageManager
+// with an attribute `content` that corresponds to the window
+
+if (typeof module !== "undefined" && module !== null) {
+  module.exports = saveAs;
+} else if ((typeof define !== "undefined" && define !== null) && (define.amd != null)) {
+  define([], function() {
+    return saveAs;
+  });
+}
 Ext.define("CArABU.app.PDBApp", {
     extend: 'Rally.app.App',
     componentCls: 'app',
@@ -374,7 +990,52 @@ Ext.define("CArABU.app.PDBApp", {
             }
         });
 
+        selector_box.add({
+            xtype:'rallybutton',
+            itemId:'export_button',
+            text: 'Download CSV',
+            margin:10,
+
+            disabled: false,
+            iconAlign: 'right',
+            listeners: {
+                scope: me,
+                click: function() {
+                    me._export();
+                }
+            },
+            margin: '10',
+            scope: me
+        });
+
+
     }, 
+
+    _export: function(){
+        var grid = this.down('rallygrid');
+        var me = this;
+
+        if ( !grid ) { return; }
+        
+        this.logger.log('_export',grid);
+
+        var filename = Ext.String.format('program_dependency_board.csv');
+
+        this.setLoading("Generating CSV");
+        Deft.Chain.sequence([
+            function() { return CArABU.technicalservices.FileUtilities._getCSVFromCustomBackedGrid(grid) } 
+        ]).then({
+            scope: this,
+            success: function(csv){
+                if (csv && csv.length > 0){
+                    CArABU.technicalservices.FileUtilities.saveCSVToFile(csv,filename);
+                } else {
+                    CArABU.ui.notify.Notifier.showWarning({message: 'No data to export'});
+                }
+                
+            }
+        }).always(function() { me.setLoading(false); });
+    },
 
     _queryAndDisplayGrid: function(){
         var me = this;
@@ -410,14 +1071,21 @@ Ext.define("CArABU.app.PDBApp", {
                         console.log('us_deps:',us_deps);
                         _.each(records,function(prow){
                             columns.push({
-                                            dataIndex:prow.get('Name'),
-                                            text:prow.get('Name')
-                                        });
+                                dataIndex:prow.get('Name'),
+                                text:prow.get('Name'),
+                                renderer: function(value){
+                                    return me._getLink(value);
+                                },
+                                exportRenderer: function(value){
+                                    return me._getLink(value,true);
+                                }
+                            });                            
                             var row = {Name :prow.get('Name')};
                             _.each(records,function(pcol){
+                                row[pcol.get('Name')] = [];
                                 _.each(us_deps,function(dep){
-                                    if(dep.Predecessor.get('Project').Name == row.Name){
-                                        row[dep.Successor.get('Project').Name ] = dep.Successor.get('FormattedID');
+                                    if(dep.Predecessor.get('Project').Name == row.Name && dep.Successor.get('Project').Name == pcol.get('Name') && pcol.get('Name') != row.Name){ //
+                                        row[dep.Successor.get('Project').Name].push(dep.Successor);
                                     }
                                 })
                             })
@@ -438,18 +1106,36 @@ Ext.define("CArABU.app.PDBApp", {
                 }).always(function() {
                     me.setLoading(false);
                 });
-
-
-
-
-
             },
             scope:me
         });
 
     },
 
+    _getLink: function(successors, csv){
+        var link = "";
+        if(csv){
+            _.each(successors, function(successor){
+                link += successor.get('FormattedID');
+                if(successor.get('Feature')) {
+                    link += ' (' + successor.get('Feature').FormattedID +')';
+                }
+                link += '\n';
+            });
+        }else{
+            _.each(successors, function(successor){
+                link += Ext.create('Rally.ui.renderer.template.FormattedIDTemplate',{}).apply(successor.data);
+                if(successor.data.Feature) {
+                    link += ' (' + Ext.create('Rally.ui.renderer.template.FormattedIDTemplate',{}).apply(successor.data.Feature) +')';
+                }
+                link += '<BR>';
+            });
+        }
+        return  link; 
+    },
+
     _displayGrid: function(store,columns){
+        console.log('Store >>',store);
         var me = this;
         me.down('#display_box').removeAll();
 
@@ -457,8 +1143,6 @@ Ext.define("CArABU.app.PDBApp", {
             xtype: 'rallygrid',
             store: store,
             showRowActionsColumn: false,
-            scroll: true,
-            autoScroll:true,            
             columnCfgs:columns
         };
 
@@ -490,7 +1174,6 @@ Ext.define("CArABU.app.PDBApp", {
  
         filter = Rally.data.wsapi.Filter.or(filters);
 
-       
         Ext.create('Rally.data.wsapi.Store', {
             model: 'Project',
             fetch: ['ObjectID','Name','Parent','Children'],
@@ -499,7 +1182,13 @@ Ext.define("CArABU.app.PDBApp", {
         }).load({
             callback : function(records, operation, successful) {
                 if (successful){
-                    deferred.resolve(records);
+                    var leaf_projects = [];
+                    _.each(records, function(record){
+                        if(record.get('Children').Count === 0){
+                            leaf_projects.push(record);
+                        }
+                    })
+                    deferred.resolve(leaf_projects);
                 } else {
                     me.logger.log("Failed: ", operation);
                     deferred.reject('Problem loading: ' + operation.error.errors.join('. '));
@@ -626,7 +1315,7 @@ Ext.define("CArABU.app.PDBApp", {
         var deferred = Ext.create('Deft.Deferred');
         if(record.get('Successors').Count > 0){
             record.getCollection('Successors').load({
-                fetch: ['ObjectID','FormattedID','Name','Project','ScheduleState','Release','Iteration','StartDate','EndDate','ReleaseStartDate','ReleaseDate', 'Successors','Owner','Blocked','BlockedReason','Notes'],
+                fetch: ['ObjectID','FormattedID','Name','Project','ScheduleState','Release','Iteration','StartDate','EndDate','ReleaseStartDate','ReleaseDate', 'Successors','Owner','Blocked','BlockedReason','Notes','Feature'],
                 scope: me,
                 callback: function(records, operation, success) {
                     deferred.resolve(records);
@@ -643,7 +1332,7 @@ Ext.define("CArABU.app.PDBApp", {
         var deferred = Ext.create('Deft.Deferred');
         if(record.get('Predecessors').Count > 0){
             record.getCollection('Predecessors').load({
-                fetch: ['ObjectID','FormattedID','Name','Project','ScheduleState','Release','Iteration','StartDate','EndDate','ReleaseStartDate','ReleaseDate', 'Successors','Owner','Blocked','BlockedReason','Notes'],
+                fetch: ['ObjectID','FormattedID','Name','Project','ScheduleState','Release','Iteration','StartDate','EndDate','ReleaseStartDate','ReleaseDate', 'Successors','Owner','Blocked','BlockedReason','Notes','Feature'],
                 scope: me,
                 callback: function(records, operation, success) {
                     deferred.resolve(records);

@@ -47,7 +47,52 @@ Ext.define("CArABU.app.PDBApp", {
             }
         });
 
+        selector_box.add({
+            xtype:'rallybutton',
+            itemId:'export_button',
+            text: 'Download CSV',
+            margin:10,
+
+            disabled: false,
+            iconAlign: 'right',
+            listeners: {
+                scope: me,
+                click: function() {
+                    me._export();
+                }
+            },
+            margin: '10',
+            scope: me
+        });
+
+
     }, 
+
+    _export: function(){
+        var grid = this.down('rallygrid');
+        var me = this;
+
+        if ( !grid ) { return; }
+        
+        this.logger.log('_export',grid);
+
+        var filename = Ext.String.format('program_dependency_board.csv');
+
+        this.setLoading("Generating CSV");
+        Deft.Chain.sequence([
+            function() { return CArABU.technicalservices.FileUtilities._getCSVFromCustomBackedGrid(grid) } 
+        ]).then({
+            scope: this,
+            success: function(csv){
+                if (csv && csv.length > 0){
+                    CArABU.technicalservices.FileUtilities.saveCSVToFile(csv,filename);
+                } else {
+                    CArABU.ui.notify.Notifier.showWarning({message: 'No data to export'});
+                }
+                
+            }
+        }).always(function() { me.setLoading(false); });
+    },
 
     _queryAndDisplayGrid: function(){
         var me = this;
@@ -83,14 +128,21 @@ Ext.define("CArABU.app.PDBApp", {
                         console.log('us_deps:',us_deps);
                         _.each(records,function(prow){
                             columns.push({
-                                            dataIndex:prow.get('Name'),
-                                            text:prow.get('Name')
-                                        });
+                                dataIndex:prow.get('Name'),
+                                text:prow.get('Name'),
+                                renderer: function(value){
+                                    return me._getLink(value);
+                                },
+                                exportRenderer: function(value){
+                                    return me._getLink(value,true);
+                                }
+                            });                            
                             var row = {Name :prow.get('Name')};
                             _.each(records,function(pcol){
+                                row[pcol.get('Name')] = [];
                                 _.each(us_deps,function(dep){
-                                    if(dep.Predecessor.get('Project').Name == row.Name){
-                                        row[dep.Successor.get('Project').Name ] = dep.Successor.get('FormattedID');
+                                    if(dep.Predecessor.get('Project').Name == row.Name && dep.Successor.get('Project').Name == pcol.get('Name') && pcol.get('Name') != row.Name){ //
+                                        row[dep.Successor.get('Project').Name].push(dep.Successor);
                                     }
                                 })
                             })
@@ -111,18 +163,36 @@ Ext.define("CArABU.app.PDBApp", {
                 }).always(function() {
                     me.setLoading(false);
                 });
-
-
-
-
-
             },
             scope:me
         });
 
     },
 
+    _getLink: function(successors, csv){
+        var link = "";
+        if(csv){
+            _.each(successors, function(successor){
+                link += successor.get('FormattedID');
+                if(successor.get('Feature')) {
+                    link += ' (' + successor.get('Feature').FormattedID +')';
+                }
+                link += '\n';
+            });
+        }else{
+            _.each(successors, function(successor){
+                link += Ext.create('Rally.ui.renderer.template.FormattedIDTemplate',{}).apply(successor.data);
+                if(successor.data.Feature) {
+                    link += ' (' + Ext.create('Rally.ui.renderer.template.FormattedIDTemplate',{}).apply(successor.data.Feature) +')';
+                }
+                link += '<BR>';
+            });
+        }
+        return  link; 
+    },
+
     _displayGrid: function(store,columns){
+        console.log('Store >>',store);
         var me = this;
         me.down('#display_box').removeAll();
 
@@ -130,8 +200,6 @@ Ext.define("CArABU.app.PDBApp", {
             xtype: 'rallygrid',
             store: store,
             showRowActionsColumn: false,
-            scroll: true,
-            autoScroll:true,            
             columnCfgs:columns
         };
 
@@ -163,7 +231,6 @@ Ext.define("CArABU.app.PDBApp", {
  
         filter = Rally.data.wsapi.Filter.or(filters);
 
-       
         Ext.create('Rally.data.wsapi.Store', {
             model: 'Project',
             fetch: ['ObjectID','Name','Parent','Children'],
@@ -172,7 +239,13 @@ Ext.define("CArABU.app.PDBApp", {
         }).load({
             callback : function(records, operation, successful) {
                 if (successful){
-                    deferred.resolve(records);
+                    var leaf_projects = [];
+                    _.each(records, function(record){
+                        if(record.get('Children').Count === 0){
+                            leaf_projects.push(record);
+                        }
+                    })
+                    deferred.resolve(leaf_projects);
                 } else {
                     me.logger.log("Failed: ", operation);
                     deferred.reject('Problem loading: ' + operation.error.errors.join('. '));
@@ -299,7 +372,7 @@ Ext.define("CArABU.app.PDBApp", {
         var deferred = Ext.create('Deft.Deferred');
         if(record.get('Successors').Count > 0){
             record.getCollection('Successors').load({
-                fetch: ['ObjectID','FormattedID','Name','Project','ScheduleState','Release','Iteration','StartDate','EndDate','ReleaseStartDate','ReleaseDate', 'Successors','Owner','Blocked','BlockedReason','Notes'],
+                fetch: ['ObjectID','FormattedID','Name','Project','ScheduleState','Release','Iteration','StartDate','EndDate','ReleaseStartDate','ReleaseDate', 'Successors','Owner','Blocked','BlockedReason','Notes','Feature'],
                 scope: me,
                 callback: function(records, operation, success) {
                     deferred.resolve(records);
@@ -316,7 +389,7 @@ Ext.define("CArABU.app.PDBApp", {
         var deferred = Ext.create('Deft.Deferred');
         if(record.get('Predecessors').Count > 0){
             record.getCollection('Predecessors').load({
-                fetch: ['ObjectID','FormattedID','Name','Project','ScheduleState','Release','Iteration','StartDate','EndDate','ReleaseStartDate','ReleaseDate', 'Successors','Owner','Blocked','BlockedReason','Notes'],
+                fetch: ['ObjectID','FormattedID','Name','Project','ScheduleState','Release','Iteration','StartDate','EndDate','ReleaseStartDate','ReleaseDate', 'Successors','Owner','Blocked','BlockedReason','Notes','Feature'],
                 scope: me,
                 callback: function(records, operation, success) {
                     deferred.resolve(records);

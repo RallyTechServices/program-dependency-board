@@ -9,6 +9,10 @@ Ext.define("CArABU.app.PDBApp", {
         name : "CArABU.app.TSApp"
     },
 
+    defultSettings:{
+        timeBox:'Iteration',
+    },
+
     items: [
         {xtype:'container',itemId:'selector_box',layout:{type:'hbox'}, margin: '10 10 50 10' },
         {xtype:'container',itemId:'display_box', margin: '50 10 10 10' }
@@ -29,23 +33,45 @@ Ext.define("CArABU.app.PDBApp", {
         var me = this;
         var selector_box = this.down('#selector_box');
         selector_box.removeAll();
-        selector_box.add({
-            xtype:'rallyiterationcombobox',
-            fieldLabel: 'Iteration:',
-            width:500,
-            margin:10,
-            showArrows : false,
-            context : this.getContext(),
-            growToLongestValue : true,
-            defaultToCurrentTimebox : true,
-            listeners: {
-                scope: me,
-                change: function(icb) {
-                    me.iteration = icb;
-                    me._queryAndDisplayGrid();
+
+        if(me.getSetting('timeBox') == 'Release'){
+            selector_box.add({
+                xtype:'rallyreleasecombobox',
+                fieldLabel: 'Release:',
+                width:500,
+                margin:10,
+                showArrows : false,
+                context : this.getContext(),
+                growToLongestValue : true,
+                defaultToCurrentTimebox : true,
+                listeners: {
+                    scope: me,
+                    change: function(rcb) {
+                        me.release = rcb;
+                        me._queryAndDisplayGrid();
+                    }
                 }
-            }
-        });
+            });            
+        }else{
+            selector_box.add({
+                xtype:'rallyiterationcombobox',
+                fieldLabel: 'Iteration:',
+                width:500,
+                margin:10,
+                showArrows : false,
+                context : this.getContext(),
+                growToLongestValue : true,
+                defaultToCurrentTimebox : true,
+                listeners: {
+                    scope: me,
+                    change: function(icb) {
+                        me.iteration = icb;
+                        me._queryAndDisplayGrid();
+                    }
+                }
+            });
+        }
+
 
         selector_box.add({
             xtype:'rallybutton',
@@ -118,9 +144,15 @@ Ext.define("CArABU.app.PDBApp", {
                 var model_name = 'HierarchicalRequirement',
                     field_names = ['ObjectID','FormattedID','Name','Project','ScheduleState','Release','Iteration','StartDate','EndDate','ReleaseStartDate','ReleaseDate','Predecessors','Successors','Owner','Blocked','BlockedReason','Notes','Feature'],
                     filters = [];
-                var iteration_name = me.iteration.rawValue;
 
-                filters = [{property:'Iteration.Name',value: iteration_name}];
+                if(me.getSetting('timeBox') == 'Release'){
+                    var release_name = me.release.rawValue;
+                    filters = [{property:'Release.Name',value: release_name}];                      
+                }else{
+                    var iteration_name = me.iteration.rawValue;
+                    filters = [{property:'Iteration.Name',value: iteration_name}];                    
+                }
+
 
                 me._queryUserStoryAndDependencies(model_name, field_names,filters).then({
                     scope: me,
@@ -130,6 +162,7 @@ Ext.define("CArABU.app.PDBApp", {
                             columns.push({
                                 dataIndex:prow.get('Name'),
                                 text:prow.get('Name'),
+                                align:'center',
                                 renderer: function(value){
                                     return me._getLink(value);
                                 },
@@ -142,7 +175,10 @@ Ext.define("CArABU.app.PDBApp", {
                                 row[pcol.get('Name')] = [];
                                 _.each(us_deps,function(dep){
                                     if(dep.Predecessor.get('Project').Name == row.Name && dep.Successor.get('Project').Name == pcol.get('Name') && pcol.get('Name') != row.Name){ //
-                                        row[dep.Successor.get('Project').Name].push(dep.Successor);
+                                        row[dep.Successor.get('Project').Name].push(dep.Successor.data);
+                                        if(dep.Successor.get('Feature') && row[dep.Successor.get('Feature').Project.Name]){
+                                            row[dep.Successor.get('Feature').Project.Name].push(dep.Successor.get('Feature'));
+                                        }
                                     }
                                 })
                             })
@@ -153,7 +189,8 @@ Ext.define("CArABU.app.PDBApp", {
 
 
                         var store = Ext.create( 'Rally.data.custom.Store', { 
-                            data: project_matrix 
+                            data: project_matrix,
+                            pageSize:200
                         });
                         me._displayGrid(store,columns);                        
                     },
@@ -173,17 +210,17 @@ Ext.define("CArABU.app.PDBApp", {
         var link = "";
         if(csv){
             _.each(successors, function(successor){
-                link += successor.get('FormattedID');
-                if(successor.get('Feature')) {
-                    link += ' (' + successor.get('Feature').FormattedID +')';
+                link += successor.FormattedID;
+                if(successor.Feature) {
+                    link += ' (' + successor.Feature.FormattedID +')';
                 }
                 link += '\n';
             });
         }else{
             _.each(successors, function(successor){
-                link += Ext.create('Rally.ui.renderer.template.FormattedIDTemplate',{}).apply(successor.data);
-                if(successor.data.Feature) {
-                    link += ' (' + Ext.create('Rally.ui.renderer.template.FormattedIDTemplate',{}).apply(successor.data.Feature) +')';
+                link += Ext.create('Rally.ui.renderer.template.FormattedIDTemplate',{}).apply(successor);
+                if(successor.Feature) {
+                    link += ' (' + Ext.create('Rally.ui.renderer.template.FormattedIDTemplate',{}).apply(successor.Feature) +')';
                 }
                 link += '<BR>';
             });
@@ -200,6 +237,7 @@ Ext.define("CArABU.app.PDBApp", {
             xtype: 'rallygrid',
             store: store,
             showRowActionsColumn: false,
+            showPagingToolbar:false,
             columnCfgs:columns
         };
 
@@ -315,12 +353,7 @@ Ext.define("CArABU.app.PDBApp", {
                                     }
                                 }
 
-                                // // create custom store 
-                                // var store = Ext.create('Rally.data.custom.Store', {
-                                //     data: us_deps,
-                                //     scope: me
-                                // });
-                                // deferred.resolve(store);                        
+                 
                                 deferred.resolve(us_deps);                        
                             },
                             scope: me
@@ -426,8 +459,32 @@ Ext.define("CArABU.app.PDBApp", {
 
 
     getSettingsFields: function() {
-        var check_box_margins = '5 0 5 0';
+        var check_box_margins = '5 5 5 5';
+        var timebox_value = this.getSetting('timeBox') == 'Release';
+
         return [{
+            xtype      : 'fieldcontainer',
+            fieldLabel : 'Timebox',
+            defaultType: 'radiofield',
+            layout: 'hbox',
+            margin: check_box_margins,
+            items: [
+                {
+                    boxLabel  : 'Iteration',
+                    name      : 'timeBox',
+                    inputValue: 'Iteration',
+                    id        : 'radio1',
+                    checked   : !timebox_value
+                }, {
+                    boxLabel  : 'Release',
+                    name      : 'timeBox',
+                    inputValue: 'Release',
+                    id        : 'radio2',
+                    checked   : timebox_value
+                }
+            ]
+        },
+        {
             name: 'saveLog',
             xtype: 'rallycheckboxfield',
             boxLabelAlign: 'after',

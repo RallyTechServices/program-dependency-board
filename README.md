@@ -2,7 +2,16 @@
 
 ## Summary/Description
 
-![screenshot](./images/screenshot.png "This is an example")
+This app shows grid of user story dependencies based on projects. The columns represents the leaf projects on the current scope. In the following screenshot, US6 (in column “Child 6”) has a predecessor in “Child 2” project.
+
+The features (of the users stories in scope) on the grid just shows the project they belong to. 
+
+This grid can show dependencies for a specific Iteration or Release. You can set to Iteration or Release use App Settings.
+
+The grid can also be downloaded into a CSV file.
+
+
+![screenshot](./images/screenshot.png "Screenshot")
 
 ## Development Notes
 

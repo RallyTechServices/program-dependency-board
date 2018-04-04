@@ -158,6 +158,12 @@ Ext.define("CArABU.app.PDBApp", {
                     scope: me,
                     success: function(us_deps) {
                         console.log('us_deps:',us_deps);
+                        // _.each(us_deps,function(dep){
+                        //     console.log('Feature Project S:',dep.Successor.get('Feature') && dep.Successor.get('Feature').Project.Name);
+                        //         console.log('Feature Project P:',dep.Predecessor.get('Feature') && dep.Predecessor.get('Feature').Project.Name);
+
+                        // })
+
                         _.each(records,function(prow){
                             columns.push({
                                 dataIndex:prow.get('Name'),
@@ -176,10 +182,11 @@ Ext.define("CArABU.app.PDBApp", {
                                 _.each(us_deps,function(dep){
                                     if(dep.Predecessor.get('Project').Name == row.Name && dep.Successor.get('Project').Name == pcol.get('Name') && pcol.get('Name') != row.Name){ //
                                         row[dep.Successor.get('Project').Name].push(dep.Successor.data);
-                                        if(dep.Successor.get('Feature') && row[dep.Successor.get('Feature').Project.Name]){
-                                            row[dep.Successor.get('Feature').Project.Name].push(dep.Successor.get('Feature'));
-                                        }
                                     }
+                                    if(dep.Successor.get('Feature') && dep.Successor.get('Feature').Project.Name == pcol.get('Name') && dep.Successor.get('Feature').Project.Name == row.Name){
+                                        //console.log('Feature Project:',dep.Successor.get('Feature').Project.Name);
+                                        row[dep.Successor.get('Feature').Project.Name] = [dep.Successor.get('Feature')];
+                                    }        
                                 })
                             })
                             project_matrix.push(row);
@@ -318,15 +325,26 @@ Ext.define("CArABU.app.PDBApp", {
                                     for (var j = 0; j < results[i][0].length || j < results[i][1].length; j++) {
                                         var pre = j < results[i][0].length ? results[i][0][j]:null;
                                         var suc = j < results[i][1].length ? results[i][1][j]:null;
-                                        console.log('pre,suc',pre,suc);
+                                        // console.log('pre,suc',pre,suc);
                                         
                                         //remove duplicates
-                                        var storyRelName = records[i] && records[i].get('Release') && records[i].get('Release').Name ? records[i].get('Release').Name : null;
-                                        var preRelOName = pre && pre.get('Release') && pre.get('Release').ObjectID ? pre.get('Release').Name : null;
-                                        //var sucRelOID = suc && suc.get('Release') && suc.get('Release').ObjectID ? suc.get('Release').ObjectID : null;
-                                        if(storyRelName == preRelOName){
-                                            pre = null;
+
+                                        if(me.getSetting('timeBox') == 'Release'){
+                                            
+                                            var storyRelName = records[i] && records[i].get('Release') && records[i].get('Release').Name ? records[i].get('Release').Name : null;
+                                            var preRelOName = pre && pre.get('Release') && pre.get('Release').ObjectID ? pre.get('Release').Name : null;
+                                            if(storyRelName == preRelOName){
+                                                pre = null;
+                                            }                                            
+                                        }else{
+
+                                            var storyItrName = records[i] && records[i].get('Iteration') && records[i].get('Iteration').Name ? records[i].get('Iteration').Name : null;
+                                            var preItrOName = pre && pre.get('Iteration') && pre.get('Iteration').ObjectID ? pre.get('Iteration').Name : null;
+                                            if(storyItrName == preItrOName){
+                                                pre = null;
+                                            }
                                         }
+
                                         // if(storyRelOID == sucRelOID){
                                         //     suc = null;
                                         // }
